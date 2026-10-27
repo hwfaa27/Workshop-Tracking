@@ -66,8 +66,11 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
-          navigateFallbackDenylist: [/^\/api\//, /^\/ws/],
+          navigateFallbackDenylist: [/^\/api\//, /^\/ws/, /^\/__\//],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -102,7 +105,6 @@ export default defineConfig(() => {
         devOptions: {
           enabled: true,
           type: 'module',
-          navigateFallback: 'index.html',
         },
       }),
     ],

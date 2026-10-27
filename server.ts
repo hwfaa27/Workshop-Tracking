@@ -1,11 +1,11 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import * as dotenv from 'dotenv';
+import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,7 +57,11 @@ wss.on('connection', (ws: AuthenticatedSocket) => {
 
   ws.on('message', async (raw) => {
     try {
-      const msg = JSON.parse(raw.toString());
+      const text = typeof raw === 'string' ? raw : raw.toString('utf8');
+      if (!text.trim().startsWith('{')) {
+        return;
+      }
+      const msg = JSON.parse(text);
       if (msg?.type === 'auth' && typeof msg.token === 'string') {
         const { verifyWsToken } = await backendModulePromise;
         ws.uid = await verifyWsToken(msg.token);
@@ -84,6 +88,46 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
+// Ensure any JSON body-parser error or unhandled /api error returns JSON, never HTML
+app.use(
+  '/api',
+  (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (res.headersSent) {
+      return;
+    }
+    const statusObj = err as { status?: number; statusCode?: number; type?: string };
+    const status = statusObj?.status || statusObj?.statusCode || 500;
+
+    if (status === 413 || statusObj?.type === 'entity.too.large') {
+      res.status(413).json({
+        error: 'Ukuran foto atau data melebihi batas maksimum server (25MB).',
+        code: 'PAYLOAD_TOO_LARGE',
+      });
+      return;
+    }
+
+    if (err instanceof SyntaxError && status === 400) {
+      res.status(400).json({
+        error: 'Format JSON permintaan tidak valid.',
+        code: 'INVALID_JSON_BODY',
+      });
+      return;
+    }
+
+    console.error(
+      '[WorkshopTrack Server Error]',
+      err instanceof Error ? err.message : 'Unexpected API error'
+    );
+    res.status(status >= 400 && status < 600 ? status : 500).json({
+      error:
+        err instanceof Error && process.env.NODE_ENV !== 'production'
+          ? err.message
+          : 'Terjadi kesalahan internal pada server API WorkshopTrack.',
+      code: 'INTERNAL_SERVER_ERROR',
+    });
+  }
+);
+
 if (process.env.NODE_ENV !== 'production') {
   const hmrDisabled = process.env.DISABLE_HMR === 'true';
   const vitePromise = import('vite').then(({ createServer: createViteServer }) =>
@@ -108,8 +152,26 @@ if (process.env.NODE_ENV !== 'production') {
   });
 } else {
   const distPath = path.join(__dirname, 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (_req, res) => {
+  app.use(
+    express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        if (
+          filePath.endsWith('sw.js') ||
+          filePath.endsWith('registerSW.js') ||
+          filePath.endsWith('manifest.json') ||
+          filePath.endsWith('index.html')
+        ) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    })
+  );
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      res.status(404).json({ error: 'Endpoint API tidak ditemukan.' });
+      return;
+    }
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }

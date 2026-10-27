@@ -7,12 +7,23 @@ import React, {
   useState,
 } from 'react';
 import {
+  getRedirectResult,
   onIdTokenChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   User,
 } from 'firebase/auth';
-import { auth, googleAuthProvider } from '../lib/firebase';
+import {
+  auth,
+  formatFirebaseAuthError,
+  googleAuthProvider,
+} from '../lib/firebase';
+import {
+  parseSafeJsonResponse,
+  resolveApiUrl,
+  safeJsonParse,
+} from '../lib/httpClient';
 import { UserProfile, UserRole } from '../types/workshop';
 
 type SyncListener = (event: string, entityId?: string) => void;
@@ -70,22 +81,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const headers = new Headers(init?.headers || {});
       headers.set('Authorization', `Bearer ${token}`);
+      headers.set('Accept', 'application/json');
       if (init?.body && !headers.has('Content-Type')) {
         headers.set('Content-Type', 'application/json');
       }
 
-      const response = await fetch(path, {
-        ...init,
-        headers,
-      });
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      const url = resolveApiUrl(path);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          ...init,
+          headers,
+        });
+      } catch (networkErr) {
+        if (import.meta.env.DEV) {
+          console.warn('[WorkshopTrack Network Debug] Gagal menghubungi API:', {
+            endpoint: path,
+            reason:
+              networkErr instanceof Error ? networkErr.message : 'Network error',
+          });
+        }
         throw new Error(
-          data?.error || `Permintaan gagal dengan kode status ${response.status}`
+          'Tidak dapat terhubung ke server backend. Periksa koneksi internet atau status server API.'
         );
       }
-      return data as T;
+
+      return await parseSafeJsonResponse<T>(response, path);
     },
     []
   );
@@ -94,21 +115,67 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const token = await user.getIdToken();
       tokenRef.current = token;
-      const res = await fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json?.error || 'Gagal memuat profil pengguna.');
+
+      const endpoint = '/api/auth/me';
+      let res: Response;
+      try {
+        res = await fetch(resolveApiUrl(endpoint), {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        });
+      } catch (networkErr) {
+        if (import.meta.env.DEV) {
+          console.warn('[WorkshopTrack Auth Network Debug]', {
+            endpoint,
+            reason:
+              networkErr instanceof Error ? networkErr.message : 'Network error',
+          });
+        }
+        throw new Error(
+          'Tidak dapat terhubung ke server backend WorkshopTrack. Periksa koneksi internet atau status server API.'
+        );
       }
+
+      const json = await parseSafeJsonResponse<{ user?: UserProfile }>(
+        res,
+        endpoint
+      );
+
+      if (!json?.user || !json.user.id) {
+        throw new Error(
+          'Respons profil pengguna dari server tidak lengkap. Autentikasi dibatalkan demi keamanan.'
+        );
+      }
+
       setProfile(json.user);
       setAuthError(null);
     } catch (err) {
-      setAuthError(
-        err instanceof Error ? err.message : 'Gagal memverifikasi akun.'
-      );
+      if (import.meta.env.DEV) {
+        console.warn('[WorkshopTrack Auth Sync Debug]', {
+          endpoint: '/api/auth/me',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+      // Never assume authentication succeeded if backend verification fails
       setProfile(null);
+      setAuthError(
+        err instanceof Error
+          ? err.message
+          : 'Gagal memverifikasi sesi akun pada server.'
+      );
     }
+  }, []);
+
+  // Handle Google OAuth redirect callback result (used when mobile browser blocks popups)
+  useEffect(() => {
+    getRedirectResult(auth).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg && !msg.includes('popup-closed-by-user')) {
+        setAuthError(formatFirebaseAuthError(err));
+      }
+    });
   }, []);
 
   // Connect WebSocket for real-time cross-device sync
@@ -137,29 +204,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         };
 
         socket.onmessage = (evt) => {
-          try {
-            const msg = JSON.parse(evt.data);
-            if (msg?.type === 'auth:ok') {
-              setWsConnected(true);
-            } else if (msg?.type === 'workshop:sync') {
-              for (const fn of listenersRef.current) {
-                fn(msg.event, msg.entityId);
-              }
+          if (typeof evt.data !== 'string') return;
+          const msg = safeJsonParse<{
+            type?: string;
+            event?: string;
+            entityId?: string;
+          }>(evt.data);
+          if (!msg) return;
+
+          if (msg.type === 'auth:ok') {
+            setWsConnected(true);
+          } else if (msg.type === 'workshop:sync' && msg.event) {
+            for (const fn of listenersRef.current) {
+              fn(msg.event, msg.entityId);
             }
-          } catch {
-            // Ignore malformed socket frames
           }
+        };
+
+        socket.onerror = () => {
+          // Handled cleanly in onclose with fallback polling when WS is unavailable (e.g. serverless Vercel)
         };
 
         socket.onclose = () => {
           setWsConnected(false);
           if (!unmounted) {
-            reconnectTimerRef.current = window.setTimeout(connectWs, 3500);
+            reconnectTimerRef.current = window.setTimeout(connectWs, 6000);
           }
         };
       } catch {
         if (!unmounted) {
-          reconnectTimerRef.current = window.setTimeout(connectWs, 4000);
+          reconnectTimerRef.current = window.setTimeout(connectWs, 6000);
         }
       }
     };
@@ -197,11 +271,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       await signInWithPopup(auth, googleAuthProvider);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Login dibatalkan atau gagal.';
-      if (!message.includes('popup-closed-by-user')) {
-        setAuthError('Gagal melakukan autentikasi Google. Pastikan jendela login tidak diblokir.');
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err
+          ? String((err as { code?: unknown }).code)
+          : '';
+      const message = err instanceof Error ? err.message : '';
+
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        message.includes('popup-closed-by-user')
+      ) {
+        return;
       }
+
+      // Fallback to OAuth redirect flow when mobile standalone PWA or browser blocks popups
+      if (code === 'auth/popup-blocked' || message.includes('popup-blocked')) {
+        try {
+          await signInWithRedirect(auth, googleAuthProvider);
+          return;
+        } catch (redirectErr) {
+          setAuthError(formatFirebaseAuthError(redirectErr));
+          return;
+        }
+      }
+
+      setAuthError(formatFirebaseAuthError(err));
     }
   };
 

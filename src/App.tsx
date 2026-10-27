@@ -98,6 +98,19 @@ const WorkshopWorkspace: React.FC = () => {
     [apiFetch]
   );
 
+  const handleSelectItemSafe = useCallback(
+    (identifier: string | number, fromScanner = false) => {
+      openItemByIdentifier(identifier, fromScanner).catch((err) => {
+        setBannerError(
+          err instanceof Error
+            ? err.message
+            : 'Gagal memuat detail barang dari server.'
+        );
+      });
+    },
+    [openItemByIdentifier]
+  );
+
   useEffect(() => {
     if (profile) {
       loadOperationalData();
@@ -171,14 +184,20 @@ const WorkshopWorkspace: React.FC = () => {
   ]);
 
   const handleMarkNotificationsRead = async (notificationId?: number) => {
-    await apiFetch('/api/notifications/read', {
-      method: 'POST',
-      body: JSON.stringify({ notificationId }),
-    });
-    const notifRes = await apiFetch<{ notifications: NotificationRecord[] }>(
-      '/api/notifications'
-    );
-    setNotifications(notifRes.notifications);
+    try {
+      await apiFetch('/api/notifications/read', {
+        method: 'POST',
+        body: JSON.stringify({ notificationId }),
+      });
+      const notifRes = await apiFetch<{ notifications: NotificationRecord[] }>(
+        '/api/notifications'
+      );
+      setNotifications(notifRes.notifications);
+    } catch (err) {
+      setBannerError(
+        err instanceof Error ? err.message : 'Gagal memperbarui status notifikasi.'
+      );
+    }
   };
 
   if (loading) {
@@ -210,7 +229,7 @@ const WorkshopWorkspace: React.FC = () => {
       onOpenIncomingModal={() => setIncomingModalOpen(true)}
       notifications={notifications}
       onMarkNotificationsRead={handleMarkNotificationsRead}
-      onOpenItemById={(itemId) => openItemByIdentifier(itemId)}
+      onOpenItemById={(itemId) => handleSelectItemSafe(itemId)}
       darkMode={darkMode}
       onToggleDarkMode={() => setDarkMode((d) => !d)}
     >
@@ -254,7 +273,7 @@ const WorkshopWorkspace: React.FC = () => {
               customers={customers}
               locations={locations}
               users={users}
-              onOpenItem={(id) => openItemByIdentifier(id, false)}
+              onOpenItem={(id) => handleSelectItemSafe(id, false)}
               onOpenIncoming={() => setIncomingModalOpen(true)}
               onRefreshAll={loadOperationalData}
             />
@@ -266,7 +285,7 @@ const WorkshopWorkspace: React.FC = () => {
               onResolveIdentifier={(identifier) =>
                 openItemByIdentifier(identifier, true)
               }
-              onSelectItem={(id) => openItemByIdentifier(id, true)}
+              onSelectItem={(id) => handleSelectItemSafe(id, true)}
             />
           )}
 
@@ -274,7 +293,7 @@ const WorkshopWorkspace: React.FC = () => {
             <ItemsView
               items={items}
               locations={locations}
-              onSelectItem={(id) => openItemByIdentifier(id)}
+              onSelectItem={(id) => handleSelectItemSafe(id)}
             />
           )}
 
@@ -282,7 +301,7 @@ const WorkshopWorkspace: React.FC = () => {
             <WorkOrdersView
               workOrders={workOrders}
               onOpenIncomingModal={() => setIncomingModalOpen(true)}
-              onSelectItem={(id) => openItemByIdentifier(id)}
+              onSelectItem={(id) => handleSelectItemSafe(id)}
               onRefresh={loadOperationalData}
             />
           )}
@@ -291,7 +310,7 @@ const WorkshopWorkspace: React.FC = () => {
             <TechniciansView
               users={users}
               items={items}
-              onSelectItem={(id) => openItemByIdentifier(id)}
+              onSelectItem={(id) => handleSelectItemSafe(id)}
               onGoToSettings={() => setActiveTab('settings')}
             />
           )}

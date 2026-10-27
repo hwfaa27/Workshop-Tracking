@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogIn, QrCode, ShieldCheck, Wrench } from 'lucide-react';
+import { LogIn, QrCode, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { PWAInstallButton } from './PWAInstallPrompt';
 import heroWorkshopImg from '../assets/images/workshop_cnc_crankshaft_1793072947940.jpg';
@@ -9,7 +9,7 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ pendingQrToken }) => {
-  const { signInWithGoogle, authError } = useAuth();
+  const { firebaseUser, signInWithGoogle, refreshProfile, authError } = useAuth();
   const [imgError, setImgError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,6 +17,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ pendingQrToken }) => {
     setSubmitting(true);
     try {
       await signInWithGoogle();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRetrySync = async () => {
+    setSubmitting(true);
+    try {
+      await refreshProfile();
     } finally {
       setSubmitting(false);
     }
@@ -103,8 +112,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ pendingQrToken }) => {
           )}
 
           {authError && (
-            <div className="p-4 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 text-xs text-red-700 dark:text-red-300">
-              {authError}
+            <div className="p-4 rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 text-xs text-red-700 dark:text-red-300 space-y-2.5">
+              <p className="leading-relaxed">{authError}</p>
+              {firebaseUser && (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleRetrySync}
+                  className="inline-flex items-center gap-1.5 font-semibold text-red-800 dark:text-red-200 underline cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Coba Verifikasi Ulang ke Server</span>
+                </button>
+              )}
             </div>
           )}
 

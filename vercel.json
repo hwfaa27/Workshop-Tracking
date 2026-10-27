@@ -1,8 +1,17 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "buildCommand": "node scripts/build-vercel-api.mjs && npm run build",
   "outputDirectory": "dist",
   "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
     {
       "source": "/manifest.json",
       "headers": [
@@ -12,7 +21,7 @@
         },
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "no-cache, no-store, must-revalidate"
         }
       ]
     },
@@ -21,11 +30,20 @@
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "no-cache, no-store, must-revalidate"
         },
         {
           "key": "Service-Worker-Allowed",
           "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/registerSW.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
         }
       ]
     }
@@ -33,10 +51,10 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "destination": "/api/index"
     },
     {
-      "source": "/((?!api/.*).*)",
+      "source": "/((?!api/|__/|sw\\.js|workbox-.*|manifest\\.json|registerSW\\.js).*)",
       "destination": "/index.html"
     }
   ]

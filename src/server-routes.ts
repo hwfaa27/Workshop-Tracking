@@ -1,6 +1,7 @@
-import { Router, Response } from 'express';
+import { Router, type Response } from 'express';
 import { adminAuth } from './lib/firebase-admin.ts';
-import { AuthRequest, requireAuth, requireRoles } from './middleware/auth.ts';
+import { isDatabaseConfigured } from './db/index.ts';
+import { type AuthRequest, requireAuth, requireRoles } from './middleware/auth.ts';
 import {
   approveItemStage,
   assignTechniciansToItem,
@@ -34,13 +35,28 @@ import {
 } from './db/repository.ts';
 
 function handleApiError(res: Response, error: unknown, defaultMessage: string) {
+  if (res.headersSent) {
+    return;
+  }
   if (error instanceof HttpError) {
     res.status(error.statusCode).json({ error: error.message });
     return;
   }
-  const message = error instanceof Error ? error.message : defaultMessage;
-  console.error(defaultMessage, error);
-  res.status(500).json({ error: message || defaultMessage });
+  const rawMessage = error instanceof Error ? error.message : defaultMessage;
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('[WorkshopTrack API Error]', defaultMessage, rawMessage);
+  } else {
+    console.error(defaultMessage);
+  }
+
+  const isRawJsonSyntaxError =
+    error instanceof SyntaxError ||
+    rawMessage.includes('is not valid JSON') ||
+    rawMessage.includes('Unexpected token');
+
+  res.status(500).json({
+    error: isRawJsonSyntaxError ? defaultMessage : rawMessage || defaultMessage,
+  });
 }
 
 export async function verifyWsToken(token: string): Promise<string> {
@@ -52,6 +68,17 @@ export function createApiRouter(
   broadcastSync: (event: string, entityId?: string | number) => void
 ): Router {
   const router = Router();
+
+  // --- DIAGNOSTIC HEALTH CHECK (JSON ONLY, NO SECRETS) ---
+  router.get('/health', (_req, res) => {
+    const dbReady = isDatabaseConfigured();
+    res.status(dbReady ? 200 : 503).json({
+      ok: dbReady,
+      service: 'WorkshopTrack API',
+      databaseConfigured: dbReady,
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // --- AUTH & PROFILE ---
   router.get('/auth/me', requireAuth, async (req: AuthRequest, res) => {
@@ -476,6 +503,14 @@ export function createApiRouter(
       }
     }
   );
+
+  // Catch-all JSON 404 for unknown /api/* endpoints so HTML is never returned
+  router.use((req, res) => {
+    res.status(404).json({
+      error: `Endpoint API "${req.originalUrl}" tidak ditemukan.`,
+      code: 'API_NOT_FOUND',
+    });
+  });
 
   return router;
 }

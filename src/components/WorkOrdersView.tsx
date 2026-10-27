@@ -28,16 +28,24 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
   const [selectedWoForQr, setSelectedWoForQr] = useState<WorkOrderRecord | null>(
     null
   );
+  const [priorityError, setPriorityError] = useState<string | null>(null);
 
   const canChangePriority =
     profile?.role === 'ADMIN' || profile?.role === 'SUPERVISOR';
 
   const handlePriorityChange = async (woId: number, priority: PriorityLevel) => {
-    await apiFetch(`/api/work-orders/${woId}/priority`, {
-      method: 'PATCH',
-      body: JSON.stringify({ priority }),
-    });
-    await onRefresh();
+    setPriorityError(null);
+    try {
+      await apiFetch(`/api/work-orders/${woId}/priority`, {
+        method: 'PATCH',
+        body: JSON.stringify({ priority }),
+      });
+      await onRefresh();
+    } catch (err) {
+      setPriorityError(
+        err instanceof Error ? err.message : 'Gagal memperbarui prioritas Work Order.'
+      );
+    }
   };
 
   const filtered = workOrders.filter((wo) => {
@@ -85,6 +93,12 @@ export const WorkOrdersView: React.FC<WorkOrdersViewProps> = ({
           className="w-full min-h-[44px] pl-10 pr-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-surface-dark text-sm"
         />
       </div>
+
+      {priorityError && (
+        <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300">
+          {priorityError}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="rounded-2xl bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 p-10 text-center text-sm text-slate-500">

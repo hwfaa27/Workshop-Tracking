@@ -3,6 +3,7 @@
   "appId": "1:821488409553:web:af6fcfbabcec9a31505ef0",
   "apiKey": "AIzaSyARkuO2YjNa3DQioBzd2lf4HWpmBAP_gI0",
   "authDomain": "infra-vertex-z5v9p.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-workshoptrack-dc135036-8b37-4d4a-b3ec-18e84df2033c",
   "storageBucket": "infra-vertex-z5v9p.firebasestorage.app",
   "messagingSenderId": "821488409553",
   "measurementId": "",

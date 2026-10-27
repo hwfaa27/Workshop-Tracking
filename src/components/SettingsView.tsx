@@ -205,7 +205,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <button
                   key={r}
                   type="button"
-                  onClick={() => switchMyRole(r)}
+                  onClick={() => {
+                    setError(null);
+                    switchMyRole(r).catch((err) => {
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : 'Gagal mengganti peran aktif.'
+                      );
+                    });
+                  }}
                   className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                     profile?.role === r
                       ? 'bg-navy-900 text-white'
@@ -715,7 +724,7 @@ npx drizzle-kit push --config=./src/db/drizzle.config.ts`}
               03. Deployment Produksi Melalui Vercel dengan HTTPS
             </h2>
             <p>
-              Proyek ini telah dilengkapi konfigurasi <code>vercel.json</code> dan serverless API adapter <code>api/index.ts</code>. Protokol <strong>HTTPS</strong> otomatis disediakan oleh Vercel sehingga akses kamera browser smartphone (<code>navigator.mediaDevices.getUserMedia</code>) untuk pemindaian QR Code dan registrasi Service Worker PWA berjalan optimal di lapangan:
+              Proyek ini telah dilengkapi konfigurasi <code>vercel.json</code> dan bundel serverless API <code>api/index.js</code>. Protokol <strong>HTTPS</strong> otomatis disediakan oleh Vercel sehingga akses kamera browser smartphone (<code>navigator.mediaDevices.getUserMedia</code>) untuk pemindaian QR Code dan registrasi Service Worker PWA berjalan optimal di lapangan:
             </p>
             <pre className="p-4 rounded-xl bg-slate-950 text-slate-100 font-mono text-xs overflow-x-auto">
 {`# 1. Login & hubungkan repositori ke Vercel CLI (atau impor dari GitHub Dashboard Vercel)
