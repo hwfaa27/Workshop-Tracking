@@ -1,6 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "node scripts/build-vercel-api.mjs && npm run build",
+  "installCommand": "npm install --include=dev",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "headers": [
     {
