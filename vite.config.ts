@@ -69,6 +69,7 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
           navigateFallbackDenylist: [/^\/api\//, /^\/ws/, /^\/__\//],
           runtimeCaching: [
@@ -111,6 +112,37 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 1600,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('/firebase/') || id.includes('/@firebase/')) {
+                return 'vendor-firebase';
+              }
+              if (id.includes('/xlsx/')) {
+                return 'vendor-xlsx';
+              }
+              if (id.includes('/jspdf') || id.includes('/html2canvas')) {
+                return 'vendor-pdf';
+              }
+              if (
+                id.includes('/react/') ||
+                id.includes('/react-dom/') ||
+                id.includes('/scheduler/')
+              ) {
+                return 'vendor-react';
+              }
+              if (id.includes('/lucide-react/') || id.includes('/motion/')) {
+                return 'vendor-ui';
+              }
+            }
+            return undefined;
+          },
+        },
       },
     },
     optimizeDeps: {

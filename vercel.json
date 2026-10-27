@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "installCommand": "npm install --include=dev",
-  "buildCommand": "npm run build",
+  "installCommand": "unset npm_config_cache_dir NPM_CONFIG_CACHE_DIR && npm install --include=dev",
+  "buildCommand": "unset npm_config_cache_dir NPM_CONFIG_CACHE_DIR && npm run build",
   "outputDirectory": "dist",
   "headers": [
     {
