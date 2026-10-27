@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
-import { db } from './index.ts';
+import {
+  createPool,
+  db,
+  extractPgErrorCode,
+  sanitizeSecretErrorText,
+} from './index.ts';
+import { ensurePostgresSchema, isMissingRelationError } from './bootstrap.ts';
 import {
   attachments,
   auditLogs,
@@ -47,7 +53,14 @@ function wrapDbError(error: unknown, fallbackMessage: string): never {
   if (error instanceof HttpError) {
     throw error;
   }
-  console.error('Database query error:', error);
+  const pgCode = extractPgErrorCode(error);
+  const safeMsg =
+    error instanceof Error
+      ? sanitizeSecretErrorText(error.message)
+      : 'Unknown database error';
+  console.error(
+    `[WorkshopTrack DB Error] ${fallbackMessage} (code=${pgCode || 'N/A'}): ${safeMsg}`
+  );
   throw new Error(fallbackMessage, { cause: error });
 }
 
@@ -102,76 +115,99 @@ function mapUserRow(row: typeof users.$inferSelect): UserProfile {
   };
 }
 
+async function syncAuthenticatedUserInternal(
+  uid: string,
+  email: string,
+  displayName?: string
+): Promise<UserProfile> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const fallbackName =
+    displayName && displayName.trim().length > 0
+      ? displayName.trim()
+      : normalizedEmail.split('@')[0];
+
+  // Check if user already exists by uid
+  const byUid = await db.select().from(users).where(eq(users.uid, uid)).limit(1);
+  if (byUid.length > 0) {
+    return mapUserRow(byUid[0]);
+  }
+
+  // Check if pre-registered by email (e.g. Admin created staff account beforehand)
+  const byEmail = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, normalizedEmail))
+    .limit(1);
+
+  if (byEmail.length > 0) {
+    const updated = await db
+      .update(users)
+      .set({
+        uid,
+        fullName: byEmail[0].fullName || fallbackName,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, byEmail[0].id))
+      .returning();
+    return mapUserRow(updated[0]);
+  }
+
+  // Check if there are any admins yet
+  const existingAdmins = await db
+    .select()
+    .from(users)
+    .where(eq(users.role, 'ADMIN'))
+    .limit(1);
+
+  const initialRole: UserRole =
+    existingAdmins.length === 0 || normalizedEmail === OWNER_ADMIN_EMAIL.toLowerCase()
+      ? 'ADMIN'
+      : 'TEKNISI';
+
+  const inserted = await db
+    .insert(users)
+    .values({
+      uid,
+      email: normalizedEmail,
+      fullName: fallbackName,
+      role: initialRole,
+      specialization: initialRole === 'ADMIN' ? 'Administrasi & Penerimaan' : 'Mekanik Umum',
+    })
+    .onConflictDoUpdate({
+      target: users.uid,
+      set: {
+        email: normalizedEmail,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return mapUserRow(inserted[0]);
+}
+
 export async function syncAuthenticatedUser(
   uid: string,
   email: string,
   displayName?: string
 ): Promise<UserProfile> {
   try {
-    const normalizedEmail = email.trim().toLowerCase();
-    const fallbackName =
-      displayName && displayName.trim().length > 0
-        ? displayName.trim()
-        : normalizedEmail.split('@')[0];
-
-    // Check if user already exists by uid
-    const byUid = await db.select().from(users).where(eq(users.uid, uid)).limit(1);
-    if (byUid.length > 0) {
-      return mapUserRow(byUid[0]);
-    }
-
-    // Check if pre-registered by email (e.g. Admin created staff account beforehand)
-    const byEmail = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, normalizedEmail))
-      .limit(1);
-
-    if (byEmail.length > 0) {
-      const updated = await db
-        .update(users)
-        .set({
-          uid,
-          fullName: byEmail[0].fullName || fallbackName,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, byEmail[0].id))
-        .returning();
-      return mapUserRow(updated[0]);
-    }
-
-    // Check if there are any admins yet
-    const existingAdmins = await db
-      .select()
-      .from(users)
-      .where(eq(users.role, 'ADMIN'))
-      .limit(1);
-
-    const initialRole: UserRole =
-      existingAdmins.length === 0 || normalizedEmail === OWNER_ADMIN_EMAIL.toLowerCase()
-        ? 'ADMIN'
-        : 'TEKNISI';
-
-    const inserted = await db
-      .insert(users)
-      .values({
-        uid,
-        email: normalizedEmail,
-        fullName: fallbackName,
-        role: initialRole,
-        specialization: initialRole === 'ADMIN' ? 'Administrasi & Penerimaan' : 'Mekanik Umum',
-      })
-      .onConflictDoUpdate({
-        target: users.uid,
-        set: {
-          email: normalizedEmail,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-
-    return mapUserRow(inserted[0]);
+    return await syncAuthenticatedUserInternal(uid, email, displayName);
   } catch (error) {
+    if (isMissingRelationError(error)) {
+      try {
+        console.info(
+          '[WorkshopTrack DB Bootstrap] Tabel database belum terinisialisasi, menyiapkan skema PostgreSQL WorkshopTrack...'
+        );
+        await ensurePostgresSchema(createPool());
+        await ensureDefaultLocations();
+        return await syncAuthenticatedUserInternal(uid, email, displayName);
+      } catch (bootstrapErr) {
+        wrapDbError(
+          bootstrapErr,
+          'Gagal menginisialisasi skema tabel pengguna pada database PostgreSQL.'
+        );
+      }
+    }
     wrapDbError(error, 'Gagal menyinkronkan profil pengguna.');
   }
 }

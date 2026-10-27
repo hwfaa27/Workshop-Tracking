@@ -174,14 +174,46 @@ export async function parseSafeJsonResponse<T>(
   }
 
   if (!response.ok) {
-    const serverMessage =
-      (typeof parsed.error === 'string' && parsed.error.trim()) ||
-      (typeof parsed.message === 'string' && parsed.message.trim()) ||
-      `Permintaan ke ${endpointLabel} gagal (HTTP ${status}).`;
-    const serverCode =
-      typeof parsed.code === 'string' ? parsed.code : undefined;
+    let nestedErrorMsg = '';
+    let nestedErrorCode: string | undefined;
 
-    throw new ApiResponseError(serverMessage, status, serverCode);
+    if (
+      typeof parsed.error === 'object' &&
+      parsed.error !== null &&
+      !Array.isArray(parsed.error)
+    ) {
+      const errObj = parsed.error as Record<string, unknown>;
+      if (typeof errObj.message === 'string' && errObj.message.trim()) {
+        nestedErrorMsg = errObj.message.trim();
+      }
+      if (typeof errObj.code === 'string' && errObj.code.trim()) {
+        nestedErrorCode = errObj.code.trim();
+      }
+    }
+
+    const rawServerMessage =
+      (typeof parsed.error === 'string' && parsed.error.trim()) ||
+      nestedErrorMsg ||
+      (typeof parsed.message === 'string' && parsed.message.trim()) ||
+      '';
+
+    const serverCode =
+      (typeof parsed.code === 'string' && parsed.code.trim()) ||
+      nestedErrorCode;
+
+    let finalMessage = rawServerMessage;
+    if (
+      !finalMessage ||
+      finalMessage.startsWith('A server error has occurred') ||
+      finalMessage === 'Internal Server Error'
+    ) {
+      finalMessage =
+        status >= 500
+          ? `Server backend mengalami gangguan internal pada ${endpointLabel} (HTTP ${status}). Pastikan variabel environment database (DATABASE_URL atau SQL_HOST, SQL_PORT, SQL_USER, SQL_PASSWORD, SQL_DB_NAME, SQL_SSL) dan FIREBASE_PROJECT_ID telah diatur pada Production Environment.`
+          : `Permintaan ke ${endpointLabel} gagal (HTTP ${status}).`;
+    }
+
+    throw new ApiResponseError(finalMessage, status, serverCode);
   }
 
   return parsed as unknown as T;

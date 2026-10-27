@@ -10,7 +10,7 @@ await build({
   outfile: path.join(rootDir, 'api/index.js'),
   bundle: true,
   platform: 'node',
-  target: 'node18',
+  target: 'node20',
   format: 'esm',
   packages: 'external',
   sourcemap: false,

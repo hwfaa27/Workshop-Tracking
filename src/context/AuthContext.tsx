@@ -20,6 +20,7 @@ import {
   googleAuthProvider,
 } from '../lib/firebase';
 import {
+  ApiResponseError,
   parseSafeJsonResponse,
   resolveApiUrl,
   safeJsonParse,
@@ -27,6 +28,10 @@ import {
 import { UserProfile, UserRole } from '../types/workshop';
 
 type SyncListener = (event: string, entityId?: string) => void;
+
+function resolveCredentialsMode(url: string): RequestCredentials {
+  return /^https?:\/\//i.test(url) ? 'include' : 'same-origin';
+}
 
 interface AuthContextValue {
   firebaseUser: User | null;
@@ -91,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         response = await fetch(url, {
           ...init,
+          credentials: init?.credentials ?? resolveCredentialsMode(url),
           headers,
         });
       } catch (networkErr) {
@@ -112,14 +118,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const fetchMyProfile = useCallback(async (user: User) => {
-    try {
-      const token = await user.getIdToken();
+    const endpoint = '/api/auth/me';
+    const url = resolveApiUrl(endpoint);
+
+    const requestProfileWithToken = async (forceRefresh: boolean) => {
+      const token = await user.getIdToken(forceRefresh);
       tokenRef.current = token;
 
-      const endpoint = '/api/auth/me';
       let res: Response;
       try {
-        res = await fetch(resolveApiUrl(endpoint), {
+        res = await fetch(url, {
+          method: 'GET',
+          credentials: resolveCredentialsMode(url),
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
@@ -138,10 +148,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         );
       }
 
-      const json = await parseSafeJsonResponse<{ user?: UserProfile }>(
-        res,
-        endpoint
-      );
+      return await parseSafeJsonResponse<{
+        authenticated?: boolean;
+        user?: UserProfile | null;
+      }>(res, endpoint);
+    };
+
+    try {
+      let json: { authenticated?: boolean; user?: UserProfile | null };
+      try {
+        json = await requestProfileWithToken(false);
+      } catch (firstErr) {
+        if (firstErr instanceof ApiResponseError && firstErr.statusCode === 401) {
+          // Force-refresh Firebase ID token once in case cached token just expired
+          json = await requestProfileWithToken(true);
+        } else {
+          throw firstErr;
+        }
+      }
 
       if (!json?.user || !json.user.id) {
         throw new Error(
@@ -301,9 +325,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const signOut = async () => {
+    const logoutUrl = resolveApiUrl('/api/auth/logout');
+    try {
+      await fetch(logoutUrl, {
+        method: 'POST',
+        credentials: resolveCredentialsMode(logoutUrl),
+        headers: { Accept: 'application/json' },
+      });
+    } catch {
+      // Ignore network errors during logout cleanup
+    }
     await firebaseSignOut(auth);
     tokenRef.current = null;
     setProfile(null);
+    setAuthError(null);
   };
 
   const refreshProfile = async () => {

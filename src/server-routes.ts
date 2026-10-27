@@ -1,7 +1,17 @@
-import { Router, type Response } from 'express';
-import { adminAuth } from './lib/firebase-admin.ts';
-import { isDatabaseConfigured } from './db/index.ts';
-import { type AuthRequest, requireAuth, requireRoles } from './middleware/auth.ts';
+import express, { type Response, type Router } from 'express';
+import { adminAuth, resolveServerFirebaseProjectId } from './lib/firebase-admin.ts';
+import {
+  getDatabaseDiagnostics,
+  isDatabaseConfigured,
+  sanitizeSecretErrorText,
+} from './db/index.ts';
+import {
+  type AuthRequest,
+  clearSessionCookie,
+  requireAuth,
+  requireRoles,
+  setSessionCookie,
+} from './middleware/auth.ts';
 import {
   approveItemStage,
   assignTechniciansToItem,
@@ -43,11 +53,8 @@ function handleApiError(res: Response, error: unknown, defaultMessage: string) {
     return;
   }
   const rawMessage = error instanceof Error ? error.message : defaultMessage;
-  if (process.env.NODE_ENV !== 'production') {
-    console.error('[WorkshopTrack API Error]', defaultMessage, rawMessage);
-  } else {
-    console.error(defaultMessage);
-  }
+  const safeLogMessage = sanitizeSecretErrorText(rawMessage);
+  console.error('[WorkshopTrack API Error]', defaultMessage, safeLogMessage);
 
   const isRawJsonSyntaxError =
     error instanceof SyntaxError ||
@@ -55,7 +62,8 @@ function handleApiError(res: Response, error: unknown, defaultMessage: string) {
     rawMessage.includes('Unexpected token');
 
   res.status(500).json({
-    error: isRawJsonSyntaxError ? defaultMessage : rawMessage || defaultMessage,
+    error: isRawJsonSyntaxError ? defaultMessage : safeLogMessage || defaultMessage,
+    code: 'API_INTERNAL_ERROR',
   });
 }
 
@@ -67,22 +75,55 @@ export async function verifyWsToken(token: string): Promise<string> {
 export function createApiRouter(
   broadcastSync: (event: string, entityId?: string | number) => void
 ): Router {
-  const router = Router();
+  const router = express.Router();
 
   // --- DIAGNOSTIC HEALTH CHECK (JSON ONLY, NO SECRETS) ---
   router.get('/health', (_req, res) => {
+    const dbDiag = getDatabaseDiagnostics();
     const dbReady = isDatabaseConfigured();
-    res.status(dbReady ? 200 : 503).json({
-      ok: dbReady,
+    const firebaseReady = Boolean(resolveServerFirebaseProjectId());
+    res.status(dbReady && firebaseReady ? 200 : 503).json({
+      ok: dbReady && firebaseReady,
       service: 'WorkshopTrack API',
       databaseConfigured: dbReady,
+      databaseMode: dbDiag.mode,
+      firebaseProjectConfigured: firebaseReady,
+      runtime: process.env.VERCEL ? 'vercel-serverless' : 'node-server',
       timestamp: new Date().toISOString(),
     });
   });
 
   // --- AUTH & PROFILE ---
   router.get('/auth/me', requireAuth, async (req: AuthRequest, res) => {
-    res.json({ user: req.dbUser });
+    try {
+      if (!req.dbUser) {
+        res.status(401).json({
+          authenticated: false,
+          user: null,
+          error: 'Sesi tidak ditemukan. Silakan login terlebih dahulu.',
+          code: 'AUTH_MISSING_USER',
+        });
+        return;
+      }
+
+      if (req.authToken && req.authSource === 'bearer') {
+        setSessionCookie(req, res, req.authToken);
+      }
+
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.status(200).json({
+        authenticated: true,
+        user: req.dbUser,
+      });
+    } catch (error) {
+      handleApiError(res, error, 'Gagal memuat sesi profil pengguna.');
+    }
+  });
+
+  router.post('/auth/logout', (req, res) => {
+    clearSessionCookie(req, res);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.status(200).json({ ok: true, authenticated: false });
   });
 
   router.post('/auth/self-role', requireAuth, async (req: AuthRequest, res) => {

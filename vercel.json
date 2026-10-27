@@ -5,6 +5,15 @@
   "outputDirectory": "dist",
   "headers": [
     {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate, private"
+        }
+      ]
+    },
+    {
       "source": "/index.html",
       "headers": [
         {
@@ -52,7 +61,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": "/api/index?__path=$1"
     },
     {
       "source": "/((?!api/|__/|sw\\.js|workbox-.*|manifest\\.json|registerSW\\.js).*)",
