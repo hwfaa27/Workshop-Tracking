@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="navyBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1B3B66" />
+      <stop offset="100%" stop-color="#0E213A" />
+    </linearGradient>
+    <linearGradient id="accentBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#navyBg)" />
+  <rect x="44" y="44" width="424" height="424" rx="84" fill="none" stroke="#3B82F6" stroke-opacity="0.28" stroke-width="6" />
+  <!-- Top-Left QR Finder -->
+  <rect x="96" y="96" width="128" height="128" rx="24" fill="none" stroke="#FFFFFF" stroke-width="24" />
+  <rect x="136" y="136" width="48" height="48" rx="10" fill="#3B82F6" />
+  <!-- Top-Right QR Finder -->
+  <rect x="288" y="96" width="128" height="128" rx="24" fill="none" stroke="#FFFFFF" stroke-width="24" />
+  <rect x="328" y="136" width="48" height="48" rx="10" fill="#FFFFFF" />
+  <!-- Bottom-Left QR Finder -->
+  <rect x="96" y="288" width="128" height="128" rx="24" fill="none" stroke="#FFFFFF" stroke-width="24" />
+  <rect x="136" y="328" width="48" height="48" rx="10" fill="#FFFFFF" />
+  <!-- Bottom-Right Industrial Tracking Badge -->
+  <rect x="276" y="276" width="152" height="152" rx="34" fill="url(#accentBlue)" />
+  <path d="M316 354 L342 380 L392 326" fill="none" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

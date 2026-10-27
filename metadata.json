@@ -1,0 +1,6 @@
+{
+  "name": "WorkshopTrack",
+  "description": "Sistem manajemen dan pelacakan komponen mesin serta peralatan industri berbasis QR Code untuk operasional workshop.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
